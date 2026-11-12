@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@layer base {
+  @import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&display=swap');
+  
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    user-select: text;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Apple Books serif font stack */
+.font-literata {
+  font-family: 'Literata', Georgia, 'Charter', 'Palatino Linotype', serif;
+}
+
+.font-charter {
+  font-family: 'Charter', 'Bitstream Charter', Georgia, serif;
+}
+
+.font-georgia {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.font-palatino {
+  font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, serif;
+}
+
+.font-system {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Custom scrollbars matching macOS minimal scroll */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 145, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 140, 145, 0.55);
+}
+
+/* Selection aesthetics */
+::selection {
+  background-color: rgba(255, 214, 10, 0.38);
+  color: inherit;
+}
+
+/* Apple Books justified book text with paragraph indent */
+.book-body-text {
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: oldstyle-nums;
+  orphans: 2;
+  widows: 2;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.book-paragraph {
+  text-indent: 1.8em;
+  margin: 0;
+}
+
+.book-paragraph-first {
+  text-indent: 0 !important;
+}
+
+/* Initial drop cap for first chapter letter */
+.book-first-letter::first-letter {
+  font-size: 3.2em;
+  line-height: 0.82;
+  float: left;
+  margin-right: 0.12em;
+  margin-top: 0.08em;
+  font-family: inherit;
+  font-weight: 500;
+}

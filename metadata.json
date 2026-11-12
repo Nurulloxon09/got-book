@@ -1,0 +1,6 @@
+{
+  "name": "Apple Books Reader",
+  "description": "A refined, pixel-perfect web-based Apple Books reader in Sepia theme with typographic controls, notes, and highlights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
