@@ -1,11 +1,12 @@
 import React from 'react';
-import { AlignJustify, AlignLeft, Check } from 'lucide-react';
+import { AlignJustify, AlignLeft, Check, Eye, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { 
   ReaderSettings, 
   THEME_CONFIGS, 
   ThemeMode, 
-  FontFamily 
+  FontFamily,
+  BionicIntensity
 } from '../types/reader';
 
 interface AAPopoverProps {
@@ -34,7 +35,6 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
   open,
   settings,
   onUpdateSettings,
-  onClose,
 }) => {
   const currentTheme = THEME_CONFIGS[settings.theme];
 
@@ -46,12 +46,13 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: -8 }}
           transition={{ duration: 0.15, ease: 'easeOut' }}
-          className="fixed top-12 right-4 sm:right-12 z-50 w-72 max-w-[calc(100vw-2rem)] rounded-[12px] p-4 shadow-2xl border select-none text-[13px]"
+          className="fixed top-12 right-4 sm:right-12 z-50 w-76 max-w-[calc(100vw-2rem)] rounded-[12px] p-4 shadow-2xl border select-none text-[13px]"
           style={{
             backgroundColor: currentTheme.popoverBg,
             borderColor: currentTheme.border,
             color: currentTheme.text,
           }}
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           {/* 1. Font Size +/- */}
@@ -63,10 +64,11 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
                 disabled={settings.fontSize <= 14}
                 className="w-10 h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 font-serif text-[12px] font-medium transition disabled:opacity-30 cursor-pointer"
                 title="Decrease font size (-)"
+                aria-label="Decrease font size"
               >
                 A
               </button>
-              <div className="text-[11px] font-mono w-7 text-center opacity-70">
+              <div className="text-[11px] font-mono tabular-nums w-7 text-center opacity-70">
                 {settings.fontSize}
               </div>
               <button
@@ -74,6 +76,7 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
                 disabled={settings.fontSize >= 32}
                 className="w-10 h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 font-serif text-[16px] font-semibold transition disabled:opacity-30 cursor-pointer"
                 title="Increase font size (+)"
+                aria-label="Increase font size"
               >
                 A
               </button>
@@ -125,10 +128,11 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
 
           {/* 3. Font Family dropdown */}
           <div className="py-3.5 border-b border-black/10 dark:border-white/10">
-            <label className="text-xs font-medium opacity-60 block mb-1.5">
+            <label htmlFor="aa-font-select" className="text-xs font-medium opacity-60 block mb-1.5">
               Font
             </label>
             <select
+              id="aa-font-select"
               value={settings.fontFamily}
               onChange={(e) => onUpdateSettings({ fontFamily: e.target.value as FontFamily })}
               className="w-full py-1.5 px-2.5 rounded-md bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/15 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
@@ -143,18 +147,19 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
           </div>
 
           {/* 4. Spacing and Alignment controls */}
-          <div className="pt-3.5 space-y-3">
+          <div className="py-3.5 border-b border-black/10 dark:border-white/10 space-y-3">
             {/* Line spacing */}
             <div>
               <div className="flex justify-between items-center text-xs opacity-60 mb-1">
                 <span>Line Spacing</span>
-                <span>{settings.lineSpacing.toFixed(2)}</span>
+                <span className="font-mono tabular-nums">{settings.lineSpacing.toFixed(2)}</span>
               </div>
               <input
                 type="range"
                 min="1.4"
                 max="2.1"
                 step="0.05"
+                aria-label="Line Spacing"
                 value={settings.lineSpacing}
                 onChange={(e) => onUpdateSettings({ lineSpacing: parseFloat(e.target.value) })}
                 className="w-full accent-blue-500 h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none cursor-pointer"
@@ -165,13 +170,14 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
             <div>
               <div className="flex justify-between items-center text-xs opacity-60 mb-1">
                 <span>Side Margins</span>
-                <span>{settings.marginPercent}%</span>
+                <span className="font-mono tabular-nums">{settings.marginPercent}%</span>
               </div>
               <input
                 type="range"
                 min="8"
                 max="26"
                 step="2"
+                aria-label="Side Margins"
                 value={settings.marginPercent}
                 onChange={(e) => onUpdateSettings({ marginPercent: parseInt(e.target.value, 10) })}
                 className="w-full accent-blue-500 h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none cursor-pointer"
@@ -188,6 +194,7 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
                     settings.justified ? 'bg-black/10 dark:bg-white/15 font-semibold' : 'opacity-60'
                   }`}
                   title="Justified (Book style)"
+                  aria-label="Justified Alignment"
                 >
                   <AlignJustify className="w-3.5 h-3.5" />
                 </button>
@@ -197,10 +204,90 @@ export const AAPopover: React.FC<AAPopoverProps> = ({
                     !settings.justified ? 'bg-black/10 dark:bg-white/15 font-semibold' : 'opacity-60'
                   }`}
                   title="Left Aligned"
+                  aria-label="Left Alignment"
                 >
                   <AlignLeft className="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* 5. Cognitive Reading Aids: Bionic Reading & Focus Mode */}
+          <div className="pt-3.5 space-y-2.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider opacity-55">
+              Reading Focus & Speed
+            </div>
+
+            {/* Bionic Reading Toggle */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="text-xs font-medium">Bionic Reading</span>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={settings.bionicReading}
+                  aria-label="Toggle Bionic Reading"
+                  onClick={() => onUpdateSettings({ bionicReading: !settings.bionicReading })}
+                  className={`w-9 h-5 rounded-full transition-colors p-0.5 cursor-pointer ${
+                    settings.bionicReading ? 'bg-blue-600' : 'bg-black/20 dark:bg-white/20'
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 rounded-full bg-white shadow-xs transition-transform ${
+                      settings.bionicReading ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {settings.bionicReading && (
+                <div className="flex items-center justify-between pl-5 pt-0.5">
+                  <span className="text-[11px] opacity-65">Fixation Strength</span>
+                  <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-md space-x-0.5 text-[10px]">
+                    {(['low', 'medium', 'high'] as BionicIntensity[]).map((lvl) => (
+                      <button
+                        key={lvl}
+                        onClick={() => onUpdateSettings({ bionicIntensity: lvl })}
+                        className={`px-2 py-0.5 rounded capitalize transition cursor-pointer ${
+                          settings.bionicIntensity === lvl
+                            ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white font-semibold shadow-xs'
+                            : 'opacity-65 hover:opacity-100'
+                        }`}
+                      >
+                        {lvl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Focus Mode (Paragraph Spotlight) Toggle */}
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center space-x-1.5">
+                <Eye className="w-3.5 h-3.5 text-blue-500" />
+                <div>
+                  <span className="text-xs font-medium block">Focus Mode</span>
+                  <span className="text-[10px] opacity-55 block">Dim surrounding paragraphs</span>
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={settings.focusMode}
+                aria-label="Toggle Focus Mode"
+                onClick={() => onUpdateSettings({ focusMode: !settings.focusMode })}
+                className={`w-9 h-5 rounded-full transition-colors p-0.5 cursor-pointer ${
+                  settings.focusMode ? 'bg-blue-600' : 'bg-black/20 dark:bg-white/20'
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full bg-white shadow-xs transition-transform ${
+                    settings.focusMode ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
         </motion.div>

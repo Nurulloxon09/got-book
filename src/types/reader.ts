@@ -1,5 +1,6 @@
 export type ThemeMode = 'sepia' | 'white' | 'gray' | 'night';
 export type FontFamily = 'Literata' | 'Charter' | 'Georgia' | 'Palatino' | 'system-ui';
+export type BionicIntensity = 'low' | 'medium' | 'high';
 
 export interface ThemeColors {
   name: string;
@@ -92,6 +93,9 @@ export interface ReaderSettings {
   lineSpacing: number; // 1.4 to 2.0, default 1.65
   marginPercent: number; // 8 to 24%, default 14%
   justified: boolean;
+  bionicReading: boolean;
+  bionicIntensity: BionicIntensity;
+  focusMode: boolean;
 }
 
 export interface HighlightColor {
@@ -160,4 +164,19 @@ export interface ReadingState {
   chapterIndex: number;
   pageInChapter: number;
   globalPage: number;
+}
+
+export interface DailyReadingLog {
+  date: string; // YYYY-MM-DD
+  minutesRead: number;
+  pagesRead: number;
+}
+
+export interface ReadingGoalsData {
+  dailyGoalMinutes: number;
+  readingSpeedWpm: number;
+  streakDays: number;
+  totalPagesReadAllTime: number;
+  visitedPageNumbers: number[];
+  dailyLogs: DailyReadingLog[];
 }

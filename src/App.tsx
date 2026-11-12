@@ -5,12 +5,14 @@ import { Sidebar } from './components/Sidebar';
 import { SelectionPopup, SelectionState } from './components/SelectionPopup';
 import { SearchModal } from './components/SearchModal';
 import { ReadingArea } from './components/ReadingArea';
+import { ReadingGoalsModal } from './components/ReadingGoalsModal';
 import { 
   BookData, 
   ReaderSettings, 
   HighlightItem, 
   Bookmark, 
-  THEME_CONFIGS 
+  THEME_CONFIGS,
+  ReadingGoalsData
 } from './types/reader';
 import { 
   loadSettings, 
@@ -20,9 +22,13 @@ import {
   loadHighlights, 
   saveHighlights, 
   loadBookmarks, 
-  saveBookmarks 
+  saveBookmarks,
+  loadReadingGoals,
+  saveReadingGoals,
+  getTodayDateString
 } from './utils/storage';
 import { parseBookFile } from './utils/epubParser';
+import { recordPageVisit } from './utils/features';
 
 export default function App() {
   const [book, setBook] = useState<BookData | null>(null);
@@ -36,7 +42,7 @@ export default function App() {
   const [currentChapterIndex, setCurrentChapterIndex] = useState(1);
   const [pageInChapter, setPageInChapter] = useState(0);
 
-  // Jump history stack (Fix 4: history stack instead of single value)
+  // Jump history stack
   const [jumpHistory, setJumpHistory] = useState<number[]>([]);
 
   // Overlays & popovers
@@ -46,17 +52,21 @@ export default function App() {
   const [aaOpen, setAaOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchHighlightQuery, setSearchHighlightQuery] = useState('');
+  const [readingGoalsOpen, setReadingGoalsOpen] = useState(false);
 
-  // Highlights, notes, bookmarks
+  // Highlights, notes, bookmarks, reading goals
   const [highlights, setHighlights] = useState<HighlightItem[]>(loadHighlights);
+  const [preferredColor, setPreferredColor] = useState<HighlightItem['color']>('yellow');
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(loadBookmarks);
+  const [readingGoals, setReadingGoals] = useState<ReadingGoalsData>(loadReadingGoals);
   const [selectionPopup, setSelectionPopup] = useState<(SelectionState & { pageContext?: string }) | null>(null);
 
-  // Auto-hide toolbar timer (Apple Books 3s timeout)
+  // Auto-hide toolbar timer
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Fix 1: Sync dark mode class to document element for Tailwind v4
+  // Sync dark mode class to document element for Tailwind v4
   useEffect(() => {
     const isDark = settings.theme === 'night' || settings.theme === 'gray';
     document.documentElement.classList.toggle('dark', isDark);
@@ -102,16 +112,18 @@ export default function App() {
   const currentChapter = book?.chapters[currentChapterIndex] || null;
   const currentPageObj = currentChapter?.pages?.[pageInChapter];
   const actualGlobalPageNumber = currentPageObj?.pageNumber ?? ((currentChapter?.startPage || 1) + pageInChapter);
+  const totalPagesInChapter = currentChapter?.pages?.length || 1;
+  const pagesLeftInChapter = Math.max(0, totalPagesInChapter - 1 - pageInChapter);
 
   // Push to jump history stack helper
   const pushJumpHistory = useCallback((page: number) => {
     setJumpHistory((prev) => {
       if (prev.length > 0 && prev[prev.length - 1] === page) return prev;
-      return [...prev, page].slice(-10); // keep last 10 jumps
+      return [...prev, page].slice(-10);
     });
   }, []);
 
-  // Save reading position whenever chapter or page changes
+  // Save reading position & record page visit in Reading Goals whenever chapter or page changes
   useEffect(() => {
     if (book && book.chapters[currentChapterIndex]) {
       saveReadingPosition({
@@ -119,20 +131,57 @@ export default function App() {
         pageInChapter,
         globalPage: actualGlobalPageNumber,
       });
+
+      setReadingGoals((prev) => {
+        const updated = recordPageVisit(prev, actualGlobalPageNumber, getTodayDateString(), 0.4);
+        saveReadingGoals(updated);
+        return updated;
+      });
     }
   }, [currentChapterIndex, pageInChapter, actualGlobalPageNumber, book]);
 
-  // Toolbar auto-hide mechanism (3.5s of no mouse movement)
+  // Active reading session timer (increments reading minutes every 60s)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setReadingGoals((prev) => {
+        const updated = recordPageVisit(prev, actualGlobalPageNumber, getTodayDateString(), 1);
+        saveReadingGoals(updated);
+        return updated;
+      });
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [actualGlobalPageNumber]);
+
+  const handleUpdateReadingGoals = useCallback((patch: Partial<ReadingGoalsData>) => {
+    setReadingGoals((prev) => {
+      const next = { ...prev, ...patch };
+      saveReadingGoals(next);
+      return next;
+    });
+  }, []);
+
+  const handleLogReadingMinutes = useCallback(
+    (minutesToAdd: number) => {
+      setReadingGoals((prev) => {
+        const updated = recordPageVisit(prev, actualGlobalPageNumber, getTodayDateString(), minutesToAdd);
+        saveReadingGoals(updated);
+        return updated;
+      });
+    },
+    [actualGlobalPageNumber]
+  );
+
+  // Toolbar auto-hide mechanism
   const resetToolbarTimer = useCallback(() => {
     setToolbarVisible(true);
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    
-    if (!aaOpen && !searchOpen && !sidebarOpen) {
+
+    if (!aaOpen && !searchOpen && !sidebarOpen && !readingGoalsOpen) {
       hideTimerRef.current = setTimeout(() => {
         setToolbarVisible(false);
       }, 3500);
     }
-  }, [aaOpen, searchOpen, sidebarOpen]);
+  }, [aaOpen, searchOpen, sidebarOpen, readingGoalsOpen]);
 
   useEffect(() => {
     const handleMouseMove = () => resetToolbarTimer();
@@ -142,9 +191,6 @@ export default function App() {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, [resetToolbarTimer]);
-
-  // Total pages in current chapter
-  const totalPagesInChapter = currentChapter?.pages?.length || 1;
 
   // Page turns: sequential, no skipping!
   const handlePrevPage = useCallback(() => {
@@ -172,7 +218,6 @@ export default function App() {
     (b) => b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber
   );
 
-  // Fix 6: useCallback for bookmark toggle to prevent stale closures
   const handleToggleBookmark = useCallback(() => {
     if (!currentChapter) return;
     setBookmarks((prevBookmarks) => {
@@ -202,13 +247,14 @@ export default function App() {
     });
   }, [currentChapter, currentChapterIndex, actualGlobalPageNumber, currentPageObj]);
 
-  // Keyboard navigation shortcuts (Fix 6: cleanly wrapped dependencies)
+  // Keyboard navigation shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
         if (e.key === 'Escape') {
           setSelectionPopup(null);
           setSearchOpen(false);
+          setReadingGoalsOpen(false);
         }
         return;
       }
@@ -228,6 +274,9 @@ export default function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         setSidebarOpen((prev) => !prev);
+      } else if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setReadingGoalsOpen((prev) => !prev);
       } else if (e.key === '+' || e.key === '=') {
         e.preventDefault();
         updateSettings({ fontSize: Math.min(32, settings.fontSize + 1) });
@@ -244,49 +293,114 @@ export default function App() {
         setSearchOpen(false);
         setSidebarOpen(false);
         setSelectionPopup(null);
+        setReadingGoalsOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [settings, handlePrevPage, handleNextPage, handleToggleBookmark, updateSettings]);
+  }, [
+    settings,
+    handlePrevPage,
+    handleNextPage,
+    handleToggleBookmark,
+    updateSettings,
+  ]);
 
-  // Highlights and Notes
-  const handleApplyHighlight = (color: HighlightItem['color'], note?: string) => {
-    if (!selectionPopup || !currentChapter) return;
+  // Instant Highlight + Note when selecting any word or sentence with left mouse button
+  const handleInstantHighlightSelection = useCallback(
+    (payload: SelectionState & { pageContext?: string }) => {
+      if (!currentChapter) return;
 
-    if (selectionPopup.existingHighlightId) {
-      const updated = highlights.map((h) => {
-        if (h.id === selectionPopup.existingHighlightId) {
-          return { ...h, color, note: note !== undefined ? note : h.note };
-        }
-        return h;
-      });
-      setHighlights(updated);
-      saveHighlights(updated);
-    } else {
+      if (payload.existingHighlightId) {
+        setActiveHighlightId(payload.existingHighlightId);
+        setActiveSidebarTab('notes');
+        setSidebarOpen(true);
+        setSelectionPopup(payload);
+        return;
+      }
+
+      const newId = `hl-${Date.now()}`;
       const newHl: HighlightItem = {
-        id: `hl-${Date.now()}`,
+        id: newId,
         chapterIndex: currentChapterIndex,
         chapterTitle: currentChapter.title,
         pageNumber: actualGlobalPageNumber,
-        paragraphIndex: selectionPopup.paragraphIndex,
-        text: selectionPopup.text,
-        color,
-        note,
+        paragraphIndex: payload.paragraphIndex,
+        text: payload.text,
+        color: preferredColor,
         createdAt: Date.now(),
       };
-      const updated = [newHl, ...highlights];
-      setHighlights(updated);
+
+      setHighlights((prev) => {
+        const updated = [newHl, ...prev];
+        saveHighlights(updated);
+        return updated;
+      });
+
+      setActiveHighlightId(newId);
+      setActiveSidebarTab('notes');
+      setSidebarOpen(true);
+      setSelectionPopup({
+        ...payload,
+        existingHighlightId: newId,
+        currentColor: preferredColor,
+      });
+    },
+    [currentChapter, currentChapterIndex, actualGlobalPageNumber, preferredColor]
+  );
+
+  // Change color of currently active highlight in popup
+  const handleChangePopupColor = useCallback(
+    (color: HighlightItem['color']) => {
+      setPreferredColor(color);
+      if (!selectionPopup?.existingHighlightId) return;
+      const targetId = selectionPopup.existingHighlightId;
+
+      setHighlights((prev) => {
+        const updated = prev.map((h) => (h.id === targetId ? { ...h, color } : h));
+        saveHighlights(updated);
+        return updated;
+      });
+      setSelectionPopup((prev) => (prev ? { ...prev, currentColor: color } : null));
+    },
+    [selectionPopup?.existingHighlightId]
+  );
+
+  // Live auto-save note as user types in SelectionPopup
+  const handleUpdatePopupNoteLive = useCallback(
+    (note: string) => {
+      if (!selectionPopup?.existingHighlightId) return;
+      const targetId = selectionPopup.existingHighlightId;
+      const cleaned = note.trim() ? note : undefined;
+
+      setHighlights((prev) => {
+        const updated = prev.map((h) => (h.id === targetId ? { ...h, note: cleaned } : h));
+        saveHighlights(updated);
+        return updated;
+      });
+      setSelectionPopup((prev) => (prev ? { ...prev, existingNote: note } : null));
+    },
+    [selectionPopup?.existingHighlightId]
+  );
+
+  const handleUpdateHighlightNote = useCallback((id: string, note: string) => {
+    const cleaned = note.trim() ? note : undefined;
+    setHighlights((prev) => {
+      const updated = prev.map((h) => (h.id === id ? { ...h, note: cleaned } : h));
       saveHighlights(updated);
-    }
-    setSelectionPopup(null);
-  };
+      return updated;
+    });
+    setSelectionPopup((prev) =>
+      prev && prev.existingHighlightId === id ? { ...prev, existingNote: note } : prev
+    );
+  }, []);
 
   const handleRemoveHighlight = (id: string) => {
     const updated = highlights.filter((h) => h.id !== id);
     setHighlights(updated);
     saveHighlights(updated);
+    if (activeHighlightId === id) setActiveHighlightId(null);
     setSelectionPopup(null);
   };
 
@@ -296,7 +410,7 @@ export default function App() {
     saveBookmarks(updated);
   };
 
-  // Navigation handlers (Fix 4: push to history stack)
+  // Navigation handlers
   const handleNavigateToChapter = (chIdx: number, pInCh = 0) => {
     pushJumpHistory(actualGlobalPageNumber);
     setCurrentChapterIndex(chIdx);
@@ -323,7 +437,6 @@ export default function App() {
     }
   };
 
-  // Fix 4: Pop from history stack
   const handleJumpBack = () => {
     if (jumpHistory.length === 0 || !book) return;
     const targetPage = jumpHistory[jumpHistory.length - 1];
@@ -340,7 +453,7 @@ export default function App() {
     }
   };
 
-  // Fix 13: Functional EPUB & TXT file upload handler
+  // Functional EPUB & TXT file upload handler
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -357,11 +470,9 @@ export default function App() {
     } catch (err: unknown) {
       console.error('File parsing error:', err);
       const msg = err instanceof Error ? err.message : 'Failed to parse book file';
-      setParseError(msg);
-      alert(`Could not load "${file.name}": ${msg}`);
+      setParseError(`Could not load "${file.name}": ${msg}`);
     } finally {
       setFileParsing(false);
-      // Reset input so same file can be reloaded if needed
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -389,7 +500,7 @@ export default function App() {
         backgroundColor: currentTheme.bg,
         color: currentTheme.text,
       }}
-      onClick={() => {
+      onMouseDown={() => {
         if (aaOpen) setAaOpen(false);
         if (selectionPopup) setSelectionPopup(null);
       }}
@@ -402,6 +513,19 @@ export default function App() {
         onChange={handleFileChange}
       />
 
+      {/* Non-blocking error toast if file upload fails */}
+      {parseError && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-red-600 text-white text-xs shadow-lg flex items-center space-x-2">
+          <span>{parseError}</span>
+          <button
+            onClick={() => setParseError(null)}
+            className="opacity-80 hover:opacity-100 font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Top Toolbar */}
       <TopToolbar
         visible={toolbarVisible}
@@ -413,6 +537,9 @@ export default function App() {
         isBookmarked={isBookmarked}
         aaOpen={aaOpen}
         searchOpen={searchOpen}
+        streakDays={readingGoals.streakDays}
+        bionicActive={settings.bionicReading}
+        focusModeActive={settings.focusMode}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         onSelectSidebarTab={(tab) => {
           setActiveSidebarTab(tab);
@@ -421,6 +548,7 @@ export default function App() {
         onToggleBookmark={handleToggleBookmark}
         onToggleAA={() => setAaOpen((v) => !v)}
         onToggleSearch={() => setSearchOpen((v) => !v)}
+        onOpenReadingGoals={() => setReadingGoalsOpen(true)}
         onOpenBookFile={() => fileInputRef.current?.click()}
         onPrevPage={handlePrevPage}
         onNextPage={handleNextPage}
@@ -432,7 +560,7 @@ export default function App() {
         }
       />
 
-      {/* AA Popover */}
+      {/* AA Popover (with Bionic Reading & Focus Mode controls) */}
       <AAPopover
         open={aaOpen}
         settings={settings}
@@ -450,10 +578,12 @@ export default function App() {
         theme={settings.theme}
         highlights={highlights}
         bookmarks={bookmarks}
+        activeHighlightId={activeHighlightId}
         onSelectTab={setActiveSidebarTab}
         onNavigateToChapter={handleNavigateToChapter}
         onNavigateToHighlight={handleNavigateToHighlight}
         onNavigateToBookmark={handleNavigateToBookmark}
+        onUpdateHighlightNote={handleUpdateHighlightNote}
         onDeleteHighlight={handleRemoveHighlight}
         onDeleteBookmark={handleDeleteBookmark}
         onClose={() => setSidebarOpen(false)}
@@ -468,18 +598,22 @@ export default function App() {
         jumpHistory={jumpHistory}
         bookTotalPages={book?.totalPages || 892}
         searchHighlightQuery={searchHighlightQuery}
+        readingSpeedWpm={readingGoals.readingSpeedWpm}
         onJumpBack={handleJumpBack}
         onPageTurnLeft={handlePrevPage}
         onPageTurnRight={handleNextPage}
-        onOpenSelectionPopup={setSelectionPopup}
+        onOpenReadingGoals={() => setReadingGoalsOpen(true)}
+        onExitFocusMode={() => updateSettings({ focusMode: false })}
+        onInstantHighlightSelection={handleInstantHighlightSelection}
       />
 
-      {/* Selection Tooltip */}
+      {/* Selection Tooltip (Instant highlight & live auto-saving note on left-mouse selection) */}
       <SelectionPopup
         selection={selectionPopup}
         chapterTitle={currentChapter?.title || 'A Game of Thrones'}
         pageContext={currentPageObj?.text || ''}
-        onApplyHighlight={handleApplyHighlight}
+        onChangeColor={handleChangePopupColor}
+        onUpdateNoteLive={handleUpdatePopupNoteLive}
         onRemoveHighlight={handleRemoveHighlight}
         onSearchBook={(q) => {
           setSearchHighlightQuery(q);
@@ -501,6 +635,22 @@ export default function App() {
           setSearchHighlightQuery(query);
         }}
         onClose={() => setSearchOpen(false)}
+      />
+
+      {/* Reading Goals & Insights Modal */}
+      <ReadingGoalsModal
+        open={readingGoalsOpen}
+        theme={settings.theme}
+        goals={readingGoals}
+        currentChapterTitle={currentChapter?.title || 'Prologue'}
+        pagesLeftInChapter={pagesLeftInChapter}
+        currentGlobalPage={actualGlobalPageNumber}
+        bookTotalPages={book?.totalPages || 892}
+        highlightsCount={highlights.length}
+        bookmarksCount={bookmarks.length}
+        onUpdateGoals={handleUpdateReadingGoals}
+        onLogReadingMinutes={handleLogReadingMinutes}
+        onClose={() => setReadingGoalsOpen(false)}
       />
     </div>
   );
