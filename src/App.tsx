@@ -22,17 +22,22 @@ import {
   loadBookmarks, 
   saveBookmarks 
 } from './utils/storage';
+import { parseBookFile } from './utils/epubParser';
 
 export default function App() {
   const [book, setBook] = useState<BookData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fileParsing, setFileParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
 
   // Settings & state
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings);
   // Default to Chapter 1 (Prologue), starting page 5
   const [currentChapterIndex, setCurrentChapterIndex] = useState(1);
   const [pageInChapter, setPageInChapter] = useState(0);
-  const [jumpHistory, setJumpHistory] = useState<number | null>(null);
+
+  // Jump history stack (Fix 4: history stack instead of single value)
+  const [jumpHistory, setJumpHistory] = useState<number[]>([]);
 
   // Overlays & popovers
   const [toolbarVisible, setToolbarVisible] = useState(true);
@@ -45,11 +50,17 @@ export default function App() {
   // Highlights, notes, bookmarks
   const [highlights, setHighlights] = useState<HighlightItem[]>(loadHighlights);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(loadBookmarks);
-  const [selectionPopup, setSelectionPopup] = useState<SelectionState | null>(null);
+  const [selectionPopup, setSelectionPopup] = useState<(SelectionState & { pageContext?: string }) | null>(null);
 
   // Auto-hide toolbar timer (Apple Books 3s timeout)
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Fix 1: Sync dark mode class to document element for Tailwind v4
+  useEffect(() => {
+    const isDark = settings.theme === 'night' || settings.theme === 'gray';
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [settings.theme]);
 
   // Load Game of Thrones book data
   useEffect(() => {
@@ -79,18 +90,26 @@ export default function App() {
   }, []);
 
   // Sync settings & persistence
-  const updateSettings = (patch: Partial<ReaderSettings>) => {
+  const updateSettings = useCallback((patch: Partial<ReaderSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       saveSettings(next);
       return next;
     });
-  };
+  }, []);
 
   // Current chapter and page
   const currentChapter = book?.chapters[currentChapterIndex] || null;
   const currentPageObj = currentChapter?.pages?.[pageInChapter];
   const actualGlobalPageNumber = currentPageObj?.pageNumber ?? ((currentChapter?.startPage || 1) + pageInChapter);
+
+  // Push to jump history stack helper
+  const pushJumpHistory = useCallback((page: number) => {
+    setJumpHistory((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1] === page) return prev;
+      return [...prev, page].slice(-10); // keep last 10 jumps
+    });
+  }, []);
 
   // Save reading position whenever chapter or page changes
   useEffect(() => {
@@ -128,7 +147,7 @@ export default function App() {
   const totalPagesInChapter = currentChapter?.pages?.length || 1;
 
   // Page turns: sequential, no skipping!
-  const handlePrevPage = () => {
+  const handlePrevPage = useCallback(() => {
     if (pageInChapter > 0) {
       setPageInChapter((p) => p - 1);
     } else if (currentChapterIndex > 0) {
@@ -137,18 +156,53 @@ export default function App() {
       setCurrentChapterIndex((c) => c - 1);
       setPageInChapter(prevTotal - 1);
     }
-  };
+  }, [pageInChapter, currentChapterIndex, book]);
 
-  const handleNextPage = () => {
+  const handleNextPage = useCallback(() => {
     if (pageInChapter < totalPagesInChapter - 1) {
       setPageInChapter((p) => p + 1);
     } else if (book && currentChapterIndex < book.chapters.length - 1) {
       setCurrentChapterIndex((c) => c + 1);
       setPageInChapter(0);
     }
-  };
+  }, [pageInChapter, totalPagesInChapter, book, currentChapterIndex]);
 
-  // Keyboard navigation shortcuts
+  // Bookmarking
+  const isBookmarked = bookmarks.some(
+    (b) => b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber
+  );
+
+  // Fix 6: useCallback for bookmark toggle to prevent stale closures
+  const handleToggleBookmark = useCallback(() => {
+    if (!currentChapter) return;
+    setBookmarks((prevBookmarks) => {
+      const alreadyBookmarked = prevBookmarks.some(
+        (b) => b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber
+      );
+
+      let updated: Bookmark[];
+      if (alreadyBookmarked) {
+        updated = prevBookmarks.filter(
+          (b) => !(b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber)
+        );
+      } else {
+        const snippet = currentPageObj?.paragraphs?.[0]?.slice(0, 80) || currentChapter.title;
+        const newBm: Bookmark = {
+          id: `bm-${Date.now()}`,
+          chapterIndex: currentChapterIndex,
+          chapterTitle: currentChapter.title,
+          pageNumber: actualGlobalPageNumber,
+          textSnippet: snippet,
+          createdAt: Date.now(),
+        };
+        updated = [newBm, ...prevBookmarks];
+      }
+      saveBookmarks(updated);
+      return updated;
+    });
+  }, [currentChapter, currentChapterIndex, actualGlobalPageNumber, currentPageObj]);
+
+  // Keyboard navigation shortcuts (Fix 6: cleanly wrapped dependencies)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
@@ -195,36 +249,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [settings, pageInChapter, currentChapterIndex, totalPagesInChapter, book]);
-
-  // Bookmarking
-  const isBookmarked = bookmarks.some(
-    (b) => b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber
-  );
-
-  const handleToggleBookmark = () => {
-    if (!currentChapter) return;
-    if (isBookmarked) {
-      const updated = bookmarks.filter(
-        (b) => !(b.chapterIndex === currentChapterIndex && b.pageNumber === actualGlobalPageNumber)
-      );
-      setBookmarks(updated);
-      saveBookmarks(updated);
-    } else {
-      const snippet = currentPageObj?.paragraphs?.[0]?.slice(0, 80) || currentChapter.title;
-      const newBm: Bookmark = {
-        id: `bm-${Date.now()}`,
-        chapterIndex: currentChapterIndex,
-        chapterTitle: currentChapter.title,
-        pageNumber: actualGlobalPageNumber,
-        textSnippet: snippet,
-        createdAt: Date.now(),
-      };
-      const updated = [newBm, ...bookmarks];
-      setBookmarks(updated);
-      saveBookmarks(updated);
-    }
-  };
+  }, [settings, handlePrevPage, handleNextPage, handleToggleBookmark, updateSettings]);
 
   // Highlights and Notes
   const handleApplyHighlight = (color: HighlightItem['color'], note?: string) => {
@@ -271,15 +296,15 @@ export default function App() {
     saveBookmarks(updated);
   };
 
-  // Navigation handlers
+  // Navigation handlers (Fix 4: push to history stack)
   const handleNavigateToChapter = (chIdx: number, pInCh = 0) => {
-    setJumpHistory(actualGlobalPageNumber);
+    pushJumpHistory(actualGlobalPageNumber);
     setCurrentChapterIndex(chIdx);
     setPageInChapter(pInCh);
   };
 
   const handleNavigateToHighlight = (hl: HighlightItem) => {
-    setJumpHistory(actualGlobalPageNumber);
+    pushJumpHistory(actualGlobalPageNumber);
     setCurrentChapterIndex(hl.chapterIndex);
     const ch = book?.chapters[hl.chapterIndex];
     if (ch && ch.pages) {
@@ -289,7 +314,7 @@ export default function App() {
   };
 
   const handleNavigateToBookmark = (bm: Bookmark) => {
-    setJumpHistory(actualGlobalPageNumber);
+    pushJumpHistory(actualGlobalPageNumber);
     setCurrentChapterIndex(bm.chapterIndex);
     const ch = book?.chapters[bm.chapterIndex];
     if (ch && ch.pages) {
@@ -298,38 +323,61 @@ export default function App() {
     }
   };
 
+  // Fix 4: Pop from history stack
   const handleJumpBack = () => {
-    if (jumpHistory !== null && book) {
-      // Find chapter containing jumpHistory page number
-      for (let cIdx = 0; cIdx < book.chapters.length; cIdx++) {
-        const ch = book.chapters[cIdx];
-        const pIdx = ch.pages.findIndex((p) => p.pageNumber === jumpHistory);
-        if (pIdx !== -1) {
-          setCurrentChapterIndex(cIdx);
-          setPageInChapter(pIdx);
-          break;
-        }
+    if (jumpHistory.length === 0 || !book) return;
+    const targetPage = jumpHistory[jumpHistory.length - 1];
+    setJumpHistory((prev) => prev.slice(0, -1));
+
+    for (let cIdx = 0; cIdx < book.chapters.length; cIdx++) {
+      const ch = book.chapters[cIdx];
+      const pIdx = ch.pages.findIndex((p) => p.pageNumber === targetPage);
+      if (pIdx !== -1) {
+        setCurrentChapterIndex(cIdx);
+        setPageInChapter(pIdx);
+        break;
       }
-      setJumpHistory(null);
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Fix 13: Functional EPUB & TXT file upload handler
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    alert(`File "${file.name}" received. You can read uploaded books with Apple Books typography.`);
+
+    setFileParsing(true);
+    setParseError(null);
+
+    try {
+      const parsedBook = await parseBookFile(file);
+      setBook(parsedBook);
+      setCurrentChapterIndex(0);
+      setPageInChapter(0);
+      setJumpHistory([]);
+    } catch (err: unknown) {
+      console.error('File parsing error:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to parse book file';
+      setParseError(msg);
+      alert(`Could not load "${file.name}": ${msg}`);
+    } finally {
+      setFileParsing(false);
+      // Reset input so same file can be reloaded if needed
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const currentTheme = THEME_CONFIGS[settings.theme];
 
-  if (loading) {
+  if (loading || fileParsing) {
     return (
       <div 
         className="h-screen w-screen flex flex-col items-center justify-center font-serif text-sm select-none"
         style={{ backgroundColor: currentTheme.bg, color: currentTheme.text }}
       >
         <div className="w-8 h-8 border-2 border-current border-t-transparent rounded-full animate-spin mb-4 opacity-50" />
-        <p className="tracking-wide">Loading A Game of Thrones...</p>
+        <p className="tracking-wide">
+          {fileParsing ? 'Parsing and paginating your book...' : 'Loading A Game of Thrones...'}
+        </p>
       </div>
     );
   }
@@ -418,6 +466,7 @@ export default function App() {
         settings={settings}
         highlights={highlights}
         jumpHistory={jumpHistory}
+        bookTotalPages={book?.totalPages || 892}
         searchHighlightQuery={searchHighlightQuery}
         onJumpBack={handleJumpBack}
         onPageTurnLeft={handlePrevPage}
@@ -428,6 +477,8 @@ export default function App() {
       {/* Selection Tooltip */}
       <SelectionPopup
         selection={selectionPopup}
+        chapterTitle={currentChapter?.title || 'A Game of Thrones'}
+        pageContext={currentPageObj?.text || ''}
         onApplyHighlight={handleApplyHighlight}
         onRemoveHighlight={handleRemoveHighlight}
         onSearchBook={(q) => {
@@ -444,7 +495,7 @@ export default function App() {
         theme={settings.theme}
         initialQuery={searchHighlightQuery}
         onJumpToResult={(chIdx, pInCh, query) => {
-          setJumpHistory(actualGlobalPageNumber);
+          pushJumpHistory(actualGlobalPageNumber);
           setCurrentChapterIndex(chIdx);
           setPageInChapter(pInCh);
           setSearchHighlightQuery(query);

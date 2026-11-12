@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Underline, 
   MessageSquare, 
@@ -9,9 +9,13 @@ import {
   BookOpen, 
   Share2, 
   Trash2,
-  Check
+  Check,
+  Sparkles,
+  UserCheck,
+  Loader2
 } from 'lucide-react';
 import { HIGHLIGHT_COLORS, HighlightColor } from '../types/reader';
+import { askAboutPage, lookupCharacter, hasGeminiKey } from '../utils/ai';
 
 export interface SelectionState {
   text: string;
@@ -24,6 +28,8 @@ export interface SelectionState {
 
 interface SelectionPopupProps {
   selection: SelectionState | null;
+  chapterTitle?: string;
+  pageContext?: string;
   onApplyHighlight: (color: HighlightColor['id'], note?: string) => void;
   onRemoveHighlight: (id: string) => void;
   onSearchBook: (query: string) => void;
@@ -32,6 +38,8 @@ interface SelectionPopupProps {
 
 export const SelectionPopup: React.FC<SelectionPopupProps> = ({
   selection,
+  chapterTitle = 'A Game of Thrones',
+  pageContext = '',
   onApplyHighlight,
   onRemoveHighlight,
   onSearchBook,
@@ -41,6 +49,26 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
   const [noteText, setNoteText] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // AI state
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiTitle, setAiTitle] = useState<string>('');
+
+  const isGeminiAvailable = hasGeminiKey();
+
+  const isLikelyCharacter = useMemo(() => {
+    if (!selection) return false;
+    const trimmed = selection.text.trim();
+    const words = trimmed.split(/\s+/);
+    return (
+      words.length >= 1 &&
+      words.length <= 3 &&
+      trimmed.length >= 3 &&
+      trimmed.length <= 35 &&
+      words.every((w) => /^[A-Z][a-zA-Z'’-]*$/.test(w))
+    );
+  }, [selection?.text]);
 
   if (!selection) return null;
 
@@ -82,14 +110,40 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
     onClose();
   };
 
-  // Position calculation to stay within viewport
-  const popupWidth = 270;
+  const handleAskAI = async () => {
+    setAiLoading(true);
+    setAiTitle('Explanation');
+    setAiResponse(null);
+    try {
+      const res = await askAboutPage(selection.text, pageContext);
+      setAiResponse(res);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleLookupCharacter = async () => {
+    setAiLoading(true);
+    setAiTitle(`Character: ${selection.text.trim()}`);
+    setAiResponse(null);
+    try {
+      const res = await lookupCharacter(selection.text.trim(), chapterTitle);
+      setAiResponse(res);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Position calculation to stay comfortably within viewport and clear top toolbar
+  const popupWidth = 285;
   const left = Math.max(16, Math.min(window.innerWidth - popupWidth - 16, selection.x - popupWidth / 2));
-  const top = Math.max(50, selection.y - 75);
+  const estimatedHeight = showNoteInput ? 230 : (aiResponse || aiLoading ? 240 : 130);
+  const maxTop = Math.max(60, window.innerHeight - estimatedHeight - 20);
+  const top = Math.max(60, Math.min(maxTop, selection.y - 75));
 
   return (
     <div
-      className="fixed z-50 rounded-[11px] bg-white dark:bg-[#252528] shadow-2xl border border-black/10 dark:border-white/10 p-2 text-neutral-800 dark:text-neutral-100 select-none animate-in fade-in zoom-in-95 duration-100 text-[12px]"
+      className="fixed z-50 rounded-[12px] bg-white dark:bg-[#252528] shadow-2xl border border-black/10 dark:border-white/10 p-2 text-neutral-800 dark:text-neutral-100 select-none text-[12px] transition-all"
       style={{
         left: `${left}px`,
         top: `${top}px`,
@@ -158,9 +212,68 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
         )}
       </div>
 
+      {/* Row 3: AI Actions row (Ask AI & Who is this?) */}
+      {isGeminiAvailable && (
+        <div className="mt-1.5 pt-1.5 border-t border-black/5 dark:border-white/5 flex items-center space-x-1 px-1">
+          <button
+            onClick={handleAskAI}
+            disabled={aiLoading}
+            className="flex-1 py-1 px-1.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium flex items-center justify-center space-x-1 text-[10px] transition disabled:opacity-50"
+          >
+            {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            <span>Ask AI</span>
+          </button>
+
+          {isLikelyCharacter && (
+            <button
+              onClick={handleLookupCharacter}
+              disabled={aiLoading}
+              className="flex-1 py-1 px-1.5 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-medium flex items-center justify-center space-x-1 text-[10px] transition disabled:opacity-50"
+            >
+              {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCheck className="w-3 h-3" />}
+              <span>Who is this?</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* AI Response Card */}
+      {(aiLoading || aiResponse) && (
+        <div className="mt-2 p-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-[11px] leading-relaxed">
+          <div className="flex items-center justify-between mb-1 opacity-70 font-mono text-[10px]">
+            <span className="font-semibold">{aiTitle}</span>
+            <button
+              onClick={() => {
+                setAiResponse(null);
+                setAiLoading(false);
+              }}
+              className="hover:opacity-100 opacity-60"
+            >
+              ✕
+            </button>
+          </div>
+          {aiLoading ? (
+            <div className="flex items-center space-x-1.5 py-1 text-neutral-500">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Consulting Citadel archives...</span>
+            </div>
+          ) : (
+            <p className="font-serif select-text max-h-36 overflow-y-auto pr-1">
+              {aiResponse}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Inline Note Textarea if opened */}
       {showNoteInput && (
         <div className="mt-2 pt-2 border-t border-black/5 dark:border-white/5">
+          {!selection.currentColor && (
+            <div className="flex items-center space-x-1.5 text-[10px] text-amber-600 dark:text-amber-400 mb-1.5 font-medium">
+              <span className="w-2 h-2 rounded-full bg-yellow-400 inline-block shrink-0" />
+              <span>Will be saved with default yellow highlight</span>
+            </div>
+          )}
           <textarea
             autoFocus
             rows={2}

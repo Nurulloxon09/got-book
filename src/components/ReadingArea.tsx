@@ -12,12 +12,21 @@ interface ReadingAreaProps {
   pageInChapter: number;
   settings: ReaderSettings;
   highlights: HighlightItem[];
-  jumpHistory: number | null;
+  jumpHistory: number[];
+  bookTotalPages?: number;
   searchHighlightQuery?: string;
   onJumpBack: () => void;
   onPageTurnLeft: () => void;
   onPageTurnRight: () => void;
-  onOpenSelectionPopup: (coords: { x: number; y: number; text: string; paragraphIndex: number; existingHighlightId?: string; currentColor?: string }) => void;
+  onOpenSelectionPopup: (coords: { 
+    x: number; 
+    y: number; 
+    text: string; 
+    paragraphIndex: number; 
+    existingHighlightId?: string; 
+    currentColor?: string;
+    pageContext?: string;
+  }) => void;
 }
 
 export const ReadingArea: React.FC<ReadingAreaProps> = ({
@@ -26,6 +35,7 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
   settings,
   highlights,
   jumpHistory,
+  bookTotalPages = 892,
   searchHighlightQuery,
   onJumpBack,
   onPageTurnLeft,
@@ -60,7 +70,13 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
   const actualGlobalPageNumber = currentPageObj?.pageNumber ?? ((chapter?.startPage || 1) + pageInChapter);
   const pagesLeftInChapter = Math.max(0, totalPagesInChapter - 1 - pageInChapter);
 
-  // Handle text selection in reading area
+  // Global reading progress percentage
+  const globalProgressPercent = Math.min(
+    100,
+    Math.max(1, Math.round((actualGlobalPageNumber / Math.max(1, bookTotalPages)) * 100))
+  );
+
+  // Handle text selection in reading area with paragraph detection
   const handleMouseUp = () => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
@@ -71,18 +87,33 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
 
-    // Check if this selection overlaps an existing highlight
+    // Determine the paragraph index by finding closest [data-para-idx]
+    let node: Node | null = range.commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) {
+      node = node.parentElement;
+    }
+    const paraEl = (node as HTMLElement | null)?.closest('[data-para-idx]');
+    const detectedParaIndex = paraEl ? parseInt(paraEl.getAttribute('data-para-idx') || '0', 10) : 0;
+
+    // Check if this selection overlaps an existing highlight on this page
     const match = highlights.find(
-      (h) => h.chapterTitle === chapter?.title && h.text.includes(selectedText)
+      (h) =>
+        h.chapterTitle === chapter?.title &&
+        (h.pageNumber === actualGlobalPageNumber || !h.pageNumber) &&
+        h.text.includes(selectedText)
     );
+
+    // Provide page context for AI
+    const pageContext = currentPageObj?.text || selectedText;
 
     onOpenSelectionPopup({
       x: rect.left + rect.width / 2,
       y: rect.top,
       text: selectedText,
-      paragraphIndex: 0,
+      paragraphIndex: detectedParaIndex,
       existingHighlightId: match?.id,
       currentColor: match?.color,
+      pageContext,
     });
   };
 
@@ -98,10 +129,21 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
   const renderParagraph = (para: { globalIndex: number; text: string }, isFirst: boolean) => {
     let content: React.ReactNode = para.text;
 
-    // Check if this paragraph contains highlighted segments
-    const matchingHighlights = pageHighlights.filter((h) =>
-      para.text.includes(h.text)
-    );
+    // Strict paragraph matching: match if paragraphIndex matches or fallback for legacy highlights
+    const matchingHighlights = pageHighlights.filter((h) => {
+      if (typeof h.paragraphIndex === 'number' && h.paragraphIndex > 0) {
+        return h.paragraphIndex === para.globalIndex && para.text.includes(h.text);
+      }
+      if (h.paragraphIndex === 0) {
+        // If 0, only match paragraph 0 or if only one paragraph contains the text
+        const otherMatches = currentParagraphs.filter((p) => p.globalIndex !== 0 && p.text.includes(h.text));
+        if (otherMatches.length === 0) {
+          return para.text.includes(h.text);
+        }
+        return para.globalIndex === 0 && para.text.includes(h.text);
+      }
+      return para.text.includes(h.text);
+    });
 
     const hasNote = matchingHighlights.some((h) => !!h.note);
 
@@ -162,7 +204,11 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
     }
 
     return (
-      <div key={para.globalIndex} className="relative group mb-3 last:mb-0">
+      <div 
+        key={para.globalIndex} 
+        data-para-idx={para.globalIndex}
+        className="relative group mb-3 last:mb-0"
+      >
         <p
           className={`book-paragraph ${isFirst && pageInChapter === 0 ? 'book-paragraph-first book-first-letter' : ''}`}
           style={{
@@ -172,16 +218,18 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
           {content}
         </p>
 
-        {/* Small square marker in right margin if this paragraph has a note */}
+        {/* Small square marker in right margin if this paragraph has a note (safely placed without clipping) */}
         {hasNote && (
           <div
-            className="absolute -right-6 top-1.5 w-2.5 h-2.5 rounded-[2px] bg-amber-400 dark:bg-amber-500 shadow-xs"
+            className="absolute -right-4 sm:-right-5 top-1.5 w-2.5 h-2.5 rounded-[2px] bg-amber-400 dark:bg-amber-500 shadow-xs pointer-events-none"
             title="Note attached"
           />
         )}
       </div>
     );
   };
+
+  const lastJumpPage = jumpHistory.length > 0 ? jumpHistory[jumpHistory.length - 1] : null;
 
   return (
     <main
@@ -219,8 +267,8 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
             lineHeight: settings.lineSpacing,
           }}
         >
-          {/* Chapter Heading (shown on first page of chapter) */}
-          {pageInChapter === 0 && chapter && (
+          {/* Chapter Heading on first page of chapter */}
+          {pageInChapter === 0 && chapter ? (
             <header className="mb-6 text-center select-none">
               <span className="text-[12px] uppercase font-mono tracking-widest opacity-50 block mb-1">
                 {chapter.pov}
@@ -229,6 +277,15 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
                 {chapter.title}
               </h1>
             </header>
+          ) : (
+            /* Persistent chapter indicator on subsequent pages */
+            chapter && (
+              <header className="mb-4 text-center select-none opacity-40 hover:opacity-75 transition-opacity">
+                <span className="text-[11px] font-serif uppercase tracking-widest block font-medium">
+                  {chapter.title}
+                </span>
+              </header>
+            )
           )}
 
           {/* Book Content Paragraphs */}
@@ -240,37 +297,45 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
         </article>
       </div>
 
-      {/* Footer line: Apple Books 3 parts (Back to page N | Page N | N pages left in this chapter) */}
+      {/* Footer line: Apple Books 3 parts (Back to page N | Page N of Total · % | N pages left in this chapter) */}
       <footer
-        className="h-8 px-8 sm:px-14 flex items-center justify-between text-[11px] font-mono select-none opacity-65 z-30 transition-opacity"
+        className="h-8 px-6 sm:px-12 flex items-center justify-between text-[11px] font-mono select-none opacity-70 z-30 transition-opacity"
         style={{ color: currentTheme.secondaryText }}
       >
         {/* Left: Back to page N (if jumped from note/search) */}
-        <div>
-          {jumpHistory !== null ? (
+        <div className="min-w-[120px]">
+          {lastJumpPage !== null ? (
             <button
               onClick={onJumpBack}
               className="hover:underline flex items-center space-x-1 font-sans text-blue-500 font-medium cursor-pointer"
             >
-              <span>← Back to page {jumpHistory}</span>
+              <span>← Back to page {lastJumpPage}</span>
             </button>
           ) : (
             <span className="opacity-0">placeholder</span>
           )}
         </div>
 
-        {/* Center: Page N (exact sequential page number, e.g. Page 5, Page 6, Page 7, Page 8, Page 9... Page 14, Page 15) */}
-        <div className="font-sans font-medium tracking-wide">
-          Page {actualGlobalPageNumber}
+        {/* Center: Global Page Progress with total pages and % */}
+        <div className="font-sans font-medium tracking-wide text-center">
+          Page {actualGlobalPageNumber} of {bookTotalPages} · {globalProgressPercent}%
         </div>
 
         {/* Right: N pages left in this chapter */}
-        <div className="font-sans">
+        <div className="font-sans min-w-[120px] text-right">
           {pagesLeftInChapter === 0
             ? 'End of chapter'
             : `${pagesLeftInChapter} page${pagesLeftInChapter === 1 ? '' : 's'} left in chapter`}
         </div>
       </footer>
+
+      {/* 2px thin theme-aware bottom reading progress bar */}
+      <div className="absolute bottom-0 left-0 w-full h-[2px] bg-black/5 dark:bg-white/5 select-none pointer-events-none">
+        <div
+          className="h-full bg-blue-500/70 transition-all duration-200"
+          style={{ width: `${globalProgressPercent}%` }}
+        />
+      </div>
     </main>
   );
 };
