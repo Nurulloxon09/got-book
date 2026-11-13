@@ -507,71 +507,73 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
 
       {/* Centered reading column (Apple Books max 62-68ch, large margins) */}
       <div
-        className="flex-1 w-full flex items-center justify-center overflow-hidden px-4 relative"
+        className="flex-1 w-full flex items-center justify-center overflow-x-hidden overflow-y-auto px-4 relative"
         style={{
           paddingLeft: `${settings.marginPercent}%`,
           paddingRight: `${settings.marginPercent}%`,
         }}
       >
-        <div className="w-full max-w-[68ch] mx-auto overflow-hidden relative my-auto">
-          <AnimatePresence mode="popLayout" initial={false} custom={slideDirection}>
-            <motion.article
-              key={`${chapter?.id || 'ch'}-${pageInChapter}`}
-              custom={slideDirection}
-              variants={{
-                enter: (dir: number) => ({
-                  x: dir > 0 ? '108%' : '-108%',
-                }),
-                center: {
-                  x: '0%',
-                },
-                exit: (dir: number) => ({
-                  x: dir > 0 ? '-108%' : '108%',
-                }),
-              }}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{
-                duration: 0.65,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-              className={`w-full ${fontClass} book-body-text select-text py-4`}
-              style={{
-                fontSize: `${settings.fontSize}px`,
-                lineHeight: settings.lineSpacing,
-              }}
-            >
-              {/* Chapter Heading on first page of chapter */}
-              {pageInChapter === 0 && chapter ? (
-                <header className="mb-6 text-center select-none">
-                  <span className="text-[12px] uppercase font-mono tracking-widest opacity-50 block mb-1">
-                    {chapter.pov}
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight">
+        <AnimatePresence mode="popLayout" initial={false} custom={slideDirection}>
+          <motion.article
+            key={`${chapter?.id || 'ch'}-${pageInChapter}`}
+            custom={slideDirection}
+            variants={{
+              enter: (dir: number) => ({
+                x: dir > 0 ? '105%' : '-105%',
+                opacity: 1,
+              }),
+              center: {
+                x: '0%',
+                opacity: 1,
+              },
+              exit: (dir: number) => ({
+                x: dir > 0 ? '-105%' : '105%',
+                opacity: 0.4,
+              }),
+            }}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              duration: 0.65,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            className={`w-full max-w-[68ch] mx-auto ${fontClass} book-body-text select-text my-auto py-4`}
+            style={{
+              fontSize: `${settings.fontSize}px`,
+              lineHeight: settings.lineSpacing,
+              backgroundColor: currentTheme.bg,
+            }}
+          >
+            {/* Chapter Heading on first page of chapter */}
+            {pageInChapter === 0 && chapter ? (
+              <header className="mb-6 text-center select-none">
+                <span className="text-[12px] uppercase font-mono tracking-widest opacity-50 block mb-1">
+                  {chapter.pov}
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight">
+                  {chapter.title}
+                </h1>
+              </header>
+            ) : (
+              /* Persistent chapter indicator on subsequent pages */
+              chapter && (
+                <header className="mb-4 text-center select-none opacity-45 hover:opacity-80 transition-opacity">
+                  <span className="text-[11px] font-serif uppercase tracking-widest block font-medium">
                     {chapter.title}
-                  </h1>
+                  </span>
                 </header>
-              ) : (
-                /* Persistent chapter indicator on subsequent pages */
-                chapter && (
-                  <header className="mb-4 text-center select-none opacity-45 hover:opacity-80 transition-opacity">
-                    <span className="text-[11px] font-serif uppercase tracking-widest block font-medium">
-                      {chapter.title}
-                    </span>
-                  </header>
-                )
-              )}
+              )
+            )}
 
-              {/* Book Content Paragraphs */}
-              <div className="space-y-0">
-                {currentParagraphs.map((para, idx) =>
-                  renderParagraph(para, idx === 0)
-                )}
-              </div>
-            </motion.article>
-          </AnimatePresence>
-        </div>
+            {/* Book Content Paragraphs */}
+            <div className="space-y-0">
+              {currentParagraphs.map((para, idx) =>
+                renderParagraph(para, idx === 0)
+              )}
+            </div>
+          </motion.article>
+        </AnimatePresence>
       </div>
 
       {/* Footer line: Apple Books 3 parts (Back to page N | Page N of Total · % | N pages left in this chapter · ~Xm) */}
