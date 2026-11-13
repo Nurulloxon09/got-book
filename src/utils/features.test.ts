@@ -6,6 +6,9 @@ import {
   tokenizeBionicText,
   calculateReadingEstimate,
   recordPageVisit,
+  createInitialSwipeState,
+  processHorizontalWheelGesture,
+  evaluateTouchSwipe,
 } from './features';
 
 test('Bionic Reading: computeFixationLength respects word length and intensity', () => {
@@ -72,3 +75,39 @@ test('Reading Goals: recordPageVisit increments unique page visits and daily log
   assert.equal(afterRevisit.totalPagesReadAllTime, 11);
   assert.equal(afterRevisit.dailyLogs[0].pagesRead, 3);
 });
+
+test('Two-Finger Swipe: processHorizontalWheelGesture triggers one page turn per swipe and ignores inertia', () => {
+  let state = createInitialSwipeState();
+
+  // First small movement (20px) accumulates without triggering yet
+  let res = processHorizontalWheelGesture(state, 20, 2, 1000);
+  assert.equal(res.action, null);
+  assert.equal(res.isHorizontal, true);
+  state = res.state;
+
+  // Second movement (25px) crosses threshold (45 >= 42) -> triggers 'next'
+  res = processHorizontalWheelGesture(state, 25, 1, 1016);
+  assert.equal(res.action, 'next');
+  assert.equal(res.isHorizontal, true);
+  state = res.state;
+
+  // Subsequent inertia events in same direction within cooldown do NOT trigger duplicate page turns
+  res = processHorizontalWheelGesture(state, 30, 0, 1032);
+  assert.equal(res.action, null);
+  state = res.state;
+
+  res = processHorizontalWheelGesture(state, 18, 0, 1050);
+  assert.equal(res.action, null);
+  state = res.state;
+
+  // Reversing direction immediately unlocks and triggers 'prev'
+  res = processHorizontalWheelGesture(state, -45, 0, 1080);
+  assert.equal(res.action, 'prev');
+});
+
+test('Two-Finger Swipe: evaluateTouchSwipe detects horizontal left/right finger swipes', () => {
+  assert.equal(evaluateTouchSwipe(400, 300, 310, 305), 'next');
+  assert.equal(evaluateTouchSwipe(300, 300, 390, 295), 'prev');
+  assert.equal(evaluateTouchSwipe(300, 300, 310, 400), null); // vertical scroll ignored
+});
+

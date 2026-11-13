@@ -66,27 +66,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [draftNoteText, setDraftNoteText] = useState<string>('');
 
-  // When a highlight is created or selected, ensure its chapter is expanded and open its inline note editor
+  // When a highlight is created or selected, ensure its chapter is expanded
   useEffect(() => {
     if (activeHighlightId) {
       const target = highlights.find((h) => h.id === activeHighlightId);
       if (target) {
         setCollapsedChapters((prev) => ({ ...prev, [target.chapterTitle]: false }));
-        setEditingNoteId(target.id);
-        setDraftNoteText(target.note || '');
       }
     }
-  }, [activeHighlightId]);
-
-  // Keep draftNoteText in sync if the note is being typed live in SelectionPopup
-  useEffect(() => {
-    if (editingNoteId) {
-      const target = highlights.find((h) => h.id === editingNoteId);
-      if (target && (target.note || '') !== draftNoteText) {
-        setDraftNoteText(target.note || '');
-      }
-    }
-  }, [highlights, editingNoteId]);
+  }, [activeHighlightId, highlights]);
 
   const toggleChapterCollapse = (chId: string) => {
     setCollapsedChapters((prev) => ({ ...prev, [chId]: !prev[chId] }));

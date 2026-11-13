@@ -10,6 +10,8 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
+    overscroll-behavior-x: none;
     user-select: text;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

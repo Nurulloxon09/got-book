@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Eye, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { 
   BookChapter, 
   ReaderSettings, 
@@ -7,7 +8,13 @@ import {
   HighlightItem,
   HIGHLIGHT_COLORS
 } from '../types/reader';
-import { tokenizeBionicText, calculateReadingEstimate } from '../utils/features';
+import { 
+  tokenizeBionicText, 
+  calculateReadingEstimate,
+  createInitialSwipeState,
+  processHorizontalWheelGesture,
+  evaluateTouchSwipe
+} from '../utils/features';
 
 interface ReadingAreaProps {
   chapter: BookChapter | null;
@@ -52,6 +59,54 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
 }) => {
   const currentTheme = THEME_CONFIGS[settings.theme];
   const [focusedParaIndex, setFocusedParaIndex] = useState<number>(0);
+  const swipeStateRef = useRef(createInitialSwipeState());
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const callbacksRef = useRef({ onPageTurnLeft, onPageTurnRight });
+
+  useEffect(() => {
+    callbacksRef.current = { onPageTurnLeft, onPageTurnRight };
+  }, [onPageTurnLeft, onPageTurnRight]);
+
+  // Two-finger horizontal touchpad slide handler (WheelEvent with deltaX)
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest('aside') ||
+        target?.closest('[data-selection-popup]') ||
+        target?.closest('[role="dialog"]')
+      ) {
+        return;
+      }
+
+      // Normalize deltaMode (1 = line, 2 = page, 0 = pixel) for Windows & macOS touchpads
+      const multiplier = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+      const normX = e.deltaX * multiplier;
+      const normY = e.deltaY * multiplier;
+
+      const result = processHorizontalWheelGesture(
+        swipeStateRef.current,
+        normX,
+        normY,
+        performance.now(),
+        e.shiftKey
+      );
+      swipeStateRef.current = result.state;
+
+      if (result.isHorizontal) {
+        e.preventDefault();
+      }
+
+      if (result.action === 'next') {
+        callbacksRef.current.onPageTurnRight();
+      } else if (result.action === 'prev') {
+        callbacksRef.current.onPageTurnLeft();
+      }
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // Reset focused paragraph to 0 whenever chapter or page changes
   useEffect(() => {
@@ -99,6 +154,15 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
   const totalPagesInChapter = chapter?.pages?.length || 1;
   const actualGlobalPageNumber = currentPageObj?.pageNumber ?? ((chapter?.startPage || 1) + pageInChapter);
   const pagesLeftInChapter = Math.max(0, totalPagesInChapter - 1 - pageInChapter);
+
+  // Track horizontal slide direction (+1 = next page sliding from right, -1 = prev page sliding from left)
+  const prevPageRef = useRef<number>(actualGlobalPageNumber);
+  const directionRef = useRef<number>(1);
+  if (actualGlobalPageNumber !== prevPageRef.current) {
+    directionRef.current = actualGlobalPageNumber > prevPageRef.current ? 1 : -1;
+    prevPageRef.current = actualGlobalPageNumber;
+  }
+  const slideDirection = directionRef.current;
 
   const chapterTimeEstimate = useMemo(
     () => calculateReadingEstimate(pagesLeftInChapter, 310, readingSpeedWpm),
@@ -331,6 +395,44 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
     );
   };
 
+  const handleTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    if (e.touches.length === 0) return;
+    let sumX = 0;
+    let sumY = 0;
+    for (let i = 0; i < e.touches.length; i++) {
+      sumX += e.touches[i].clientX;
+      sumY += e.touches[i].clientY;
+    }
+    touchStartRef.current = {
+      x: sumX / e.touches.length,
+      y: sumY / e.touches.length,
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLElement>) => {
+    if (!touchStartRef.current || e.changedTouches.length === 0) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) {
+      touchStartRef.current = null;
+      return;
+    }
+
+    const endTouch = e.changedTouches[0];
+    const action = evaluateTouchSwipe(
+      touchStartRef.current.x,
+      touchStartRef.current.y,
+      endTouch.clientX,
+      endTouch.clientY
+    );
+    touchStartRef.current = null;
+
+    if (action === 'next') {
+      onPageTurnRight();
+    } else if (action === 'prev') {
+      onPageTurnLeft();
+    }
+  };
+
   const lastJumpPage = jumpHistory.length > 0 ? jumpHistory[jumpHistory.length - 1] : null;
 
   return (
@@ -341,6 +443,8 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
         color: currentTheme.text,
       }}
       onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       {/* Click zones on left & right edges for turning pages */}
       <div
@@ -403,47 +507,73 @@ export const ReadingArea: React.FC<ReadingAreaProps> = ({
 
       {/* Centered reading column (Apple Books max 62-68ch, large margins) */}
       <div
-        className="flex-1 w-full flex items-center justify-center overflow-y-auto px-4"
+        className="flex-1 w-full flex items-center justify-center overflow-x-hidden overflow-y-auto px-4 relative"
         style={{
           paddingLeft: `${settings.marginPercent}%`,
           paddingRight: `${settings.marginPercent}%`,
         }}
       >
-        <article
-          className={`w-full max-w-[68ch] mx-auto ${fontClass} book-body-text transition-all duration-150 select-text my-auto py-4`}
-          style={{
-            fontSize: `${settings.fontSize}px`,
-            lineHeight: settings.lineSpacing,
-          }}
-        >
-          {/* Chapter Heading on first page of chapter */}
-          {pageInChapter === 0 && chapter ? (
-            <header className="mb-6 text-center select-none">
-              <span className="text-[12px] uppercase font-mono tracking-widest opacity-50 block mb-1">
-                {chapter.pov}
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight">
-                {chapter.title}
-              </h1>
-            </header>
-          ) : (
-            /* Persistent chapter indicator on subsequent pages */
-            chapter && (
-              <header className="mb-4 text-center select-none opacity-45 hover:opacity-80 transition-opacity">
-                <span className="text-[11px] font-serif uppercase tracking-widest block font-medium">
-                  {chapter.title}
+        <AnimatePresence mode="popLayout" initial={false} custom={slideDirection}>
+          <motion.article
+            key={`${chapter?.id || 'ch'}-${pageInChapter}`}
+            custom={slideDirection}
+            variants={{
+              enter: (dir: number) => ({
+                x: dir > 0 ? '105%' : '-105%',
+                opacity: 1,
+              }),
+              center: {
+                x: '0%',
+                opacity: 1,
+              },
+              exit: (dir: number) => ({
+                x: dir > 0 ? '-105%' : '105%',
+                opacity: 0.4,
+              }),
+            }}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              duration: 0.65,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            className={`w-full max-w-[68ch] mx-auto ${fontClass} book-body-text select-text my-auto py-4`}
+            style={{
+              fontSize: `${settings.fontSize}px`,
+              lineHeight: settings.lineSpacing,
+              backgroundColor: currentTheme.bg,
+            }}
+          >
+            {/* Chapter Heading on first page of chapter */}
+            {pageInChapter === 0 && chapter ? (
+              <header className="mb-6 text-center select-none">
+                <span className="text-[12px] uppercase font-mono tracking-widest opacity-50 block mb-1">
+                  {chapter.pov}
                 </span>
+                <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight">
+                  {chapter.title}
+                </h1>
               </header>
-            )
-          )}
-
-          {/* Book Content Paragraphs */}
-          <div className="space-y-0">
-            {currentParagraphs.map((para, idx) =>
-              renderParagraph(para, idx === 0)
+            ) : (
+              /* Persistent chapter indicator on subsequent pages */
+              chapter && (
+                <header className="mb-4 text-center select-none opacity-45 hover:opacity-80 transition-opacity">
+                  <span className="text-[11px] font-serif uppercase tracking-widest block font-medium">
+                    {chapter.title}
+                  </span>
+                </header>
+              )
             )}
-          </div>
-        </article>
+
+            {/* Book Content Paragraphs */}
+            <div className="space-y-0">
+              {currentParagraphs.map((para, idx) =>
+                renderParagraph(para, idx === 0)
+              )}
+            </div>
+          </motion.article>
+        </AnimatePresence>
       </div>
 
       {/* Footer line: Apple Books 3 parts (Back to page N | Page N of Total · % | N pages left in this chapter · ~Xm) */}

@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Underline, 
-  MessageSquare, 
   Copy, 
   MoreHorizontal, 
   Search, 
@@ -13,7 +12,7 @@ import {
   Sparkles,
   UserCheck,
   Loader2,
-  X
+  CornerDownLeft
 } from 'lucide-react';
 import { HIGHLIGHT_COLORS, HighlightColor } from '../types/reader';
 import { askAboutPage, lookupCharacter, hasGeminiKey } from '../utils/ai';
@@ -98,7 +97,7 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
     setTimeout(() => {
       setCopied(false);
       onClose();
-    }, 800);
+    }, 650);
   };
 
   const handleSearchWeb = () => {
@@ -156,17 +155,17 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
     }
   };
 
-  // Position calculation to stay comfortably within viewport and clear top toolbar
-  const popupWidth = 305;
+  // Minimalist compact popover positioning
+  const popupWidth = 248;
   const left = Math.max(16, Math.min(window.innerWidth - popupWidth - 16, selection.x - popupWidth / 2));
-  const estimatedHeight = aiResponse || aiLoading ? 310 : 230;
-  const maxTop = Math.max(60, window.innerHeight - estimatedHeight - 20);
-  const top = Math.max(60, Math.min(maxTop, selection.y - 95));
+  const estimatedHeight = aiResponse || aiLoading ? 210 : showMoreMenu ? 195 : 88;
+  const maxTop = Math.max(56, window.innerHeight - estimatedHeight - 16);
+  const top = Math.max(56, Math.min(maxTop, selection.y - 84));
 
   return (
     <div
       data-selection-popup="true"
-      className="fixed z-50 rounded-[12px] bg-white dark:bg-[#252528] shadow-2xl border border-black/10 dark:border-white/10 p-2.5 text-neutral-800 dark:text-neutral-100 select-none text-[12px] transition-all"
+      className="fixed z-50 rounded-xl bg-white/95 dark:bg-[#1f1f22]/95 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.22)] border border-black/8 dark:border-white/10 p-2 text-neutral-800 dark:text-neutral-100 select-none text-xs transition-all"
       style={{
         left: `${left}px`,
         top: `${top}px`,
@@ -175,17 +174,19 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Row 1: 5 Color dots + Underline + Delete + Close */}
-      <div className="flex items-center justify-between px-1 py-0.5">
-        <div className="flex items-center space-x-2">
+      {/* Minimalist Top Bar: Color swatches + Underline + Quick icon actions */}
+      <div className="flex items-center justify-between px-0.5">
+        <div className="flex items-center space-x-1.5">
           {HIGHLIGHT_COLORS.map((c) => {
             const isChosen = selectedColor === c.id;
             return (
               <button
                 key={c.id}
                 onClick={() => handleColorPick(c.id)}
-                className={`w-5 h-5 rounded-full flex items-center justify-center hover:scale-125 transition-transform cursor-pointer ${
-                  isChosen ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-[#252528]' : ''
+                className={`w-4 h-4 rounded-full transition-transform cursor-pointer ${
+                  isChosen
+                    ? 'scale-115 ring-1.5 ring-neutral-900/70 dark:ring-white/90 ring-offset-1 ring-offset-white dark:ring-offset-[#1f1f22]'
+                    : 'opacity-80 hover:opacity-100 hover:scale-110'
                 }`}
                 style={{ backgroundColor: c.accent }}
                 title={`Highlight ${c.name}`}
@@ -194,125 +195,92 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
             );
           })}
 
-          <div className="h-4 w-[1px] bg-black/10 dark:bg-white/10 mx-0.5" />
-
-          {/* Underline button */}
           <button
             onClick={() => handleColorPick('underline')}
-            className={`p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition flex items-center justify-center font-serif text-[13px] font-medium cursor-pointer ${
-              selectedColor === 'underline' ? 'bg-black/10 dark:bg-white/15 ring-1 ring-blue-500' : ''
+            className={`w-5 h-5 rounded-md flex items-center justify-center transition cursor-pointer ${
+              selectedColor === 'underline'
+                ? 'bg-black/10 dark:bg-white/15 text-neutral-900 dark:text-white'
+                : 'opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10'
             }`}
             title="Underline text"
             aria-label="Underline text"
           >
-            <Underline className="w-3.5 h-3.5" />
+            <Underline className="w-3 h-3" />
           </button>
         </div>
 
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-0.5">
+          <button
+            onClick={handleCopy}
+            className="p-1 rounded-md opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
+            title={copied ? 'Copied' : 'Copy text'}
+            aria-label="Copy text"
+          >
+            {copied ? (
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+
           {selection.existingHighlightId && (
             <button
               onClick={() => onRemoveHighlight(selection.existingHighlightId!)}
-              className="p-1 rounded hover:bg-red-500/10 text-red-500 transition cursor-pointer"
+              className="p-1 rounded-md opacity-60 hover:opacity-100 hover:bg-red-500/10 hover:text-red-500 transition cursor-pointer"
               title="Remove Highlight"
               aria-label="Remove Highlight"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+
           <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 opacity-60 hover:opacity-100 transition cursor-pointer"
-            title="Close (Esc)"
-            aria-label="Close popup"
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+            className={`p-1 rounded-md transition cursor-pointer ${
+              showMoreMenu
+                ? 'bg-black/10 dark:bg-white/15 opacity-100'
+                : 'opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10'
+            }`}
+            title="More options"
+            aria-label="More options"
           >
-            <X className="w-3.5 h-3.5" />
+            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Instant Notes Part (Automatically open & auto-saving live as you type) */}
-      <div className="mt-2 pt-2 border-t border-black/5 dark:border-white/5">
-        <div className="flex items-center justify-between text-[10px] mb-1.5 font-medium">
-          <span className="flex items-center space-x-1.5 text-amber-700 dark:text-amber-400">
-            <MessageSquare className="w-3 h-3" />
-            <span>Highlighted · Add Note (saves automatically)</span>
-          </span>
-        </div>
-        <textarea
+      {/* Minimalist Note Input */}
+      <div className="mt-1.5 pt-1.5 border-t border-black/6 dark:border-white/8 flex items-center space-x-1">
+        <input
+          type="text"
           autoFocus
-          rows={2}
           value={noteText}
           onChange={(e) => handleNoteChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter') {
               e.preventDefault();
               onClose();
             }
           }}
-          placeholder="Type a note... (Press Enter when done)"
+          placeholder="Add a note..."
           aria-label="Write a note for this highlight"
-          className="w-full p-2 text-xs rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:outline-none focus:border-blue-500 resize-none font-sans"
+          className="w-full px-2 py-1 text-[11px] rounded-md bg-black/[0.03] dark:bg-white/[0.04] focus:bg-black/[0.05] dark:focus:bg-white/[0.07] focus:outline-none placeholder:opacity-45 font-sans"
         />
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[10px] opacity-55 truncate max-w-[175px]">
-            “{selection.text}”
-          </span>
-          <button
-            onClick={onClose}
-            className="px-3 py-1 rounded-md text-[11px] bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-xs cursor-pointer whitespace-nowrap"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-
-      {/* Row 2: Secondary Actions Menu */}
-      <div className="mt-2 pt-1.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between text-[11px] px-1 font-medium">
         <button
-          onClick={handleCopy}
-          className="flex items-center space-x-1 py-1 px-1.5 rounded hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
+          onClick={onClose}
+          className="p-1 rounded-md opacity-50 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer shrink-0"
+          title="Save & close (Enter)"
+          aria-label="Done"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 opacity-60" />}
-          <span>{copied ? 'Copied' : 'Copy Text'}</span>
-        </button>
-
-        {isGeminiAvailable && (
-          <button
-            onClick={handleAskAI}
-            disabled={aiLoading}
-            className="py-1 px-2 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium flex items-center space-x-1 text-[10px] transition disabled:opacity-50 cursor-pointer"
-          >
-            {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-            <span>Ask AI</span>
-          </button>
-        )}
-
-        {isGeminiAvailable && isLikelyCharacter && (
-          <button
-            onClick={handleLookupCharacter}
-            disabled={aiLoading}
-            className="py-1 px-2 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-medium flex items-center space-x-1 text-[10px] transition disabled:opacity-50 cursor-pointer"
-          >
-            {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCheck className="w-3 h-3" />}
-            <span>Who is this?</span>
-          </button>
-        )}
-
-        <button
-          onClick={() => setShowMoreMenu(!showMoreMenu)}
-          className="flex items-center space-x-1 py-1 px-1.5 rounded hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer"
-        >
-          <MoreHorizontal className="w-3 h-3 opacity-60" />
-          <span>More</span>
+          <CornerDownLeft className="w-3 h-3" />
         </button>
       </div>
 
       {/* AI Response Card */}
       {(aiLoading || aiResponse) && (
-        <div className="mt-2 p-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-[11px] leading-relaxed">
-          <div className="flex items-center justify-between mb-1 opacity-70 font-mono text-[10px]">
-            <span className="font-semibold">{aiTitle}</span>
+        <div className="mt-1.5 p-2 rounded-lg bg-black/4 dark:bg-white/5 text-[11px] leading-relaxed">
+          <div className="flex items-center justify-between mb-1 opacity-60 font-mono text-[10px]">
+            <span>{aiTitle}</span>
             <button
               onClick={() => {
                 setAiResponse(null);
@@ -324,55 +292,77 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
             </button>
           </div>
           {aiLoading ? (
-            <div className="flex items-center space-x-1.5 py-1 text-neutral-500">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Consulting Citadel archives...</span>
+            <div className="flex items-center space-x-1.5 py-0.5 opacity-60">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Thinking...</span>
             </div>
           ) : (
-            <p className="font-serif select-text max-h-36 overflow-y-auto pr-1">
+            <p className="font-serif select-text max-h-32 overflow-y-auto pr-1">
               {aiResponse}
             </p>
           )}
         </div>
       )}
 
-      {/* More submenu popup */}
+      {/* Compact More Menu */}
       {showMoreMenu && (
-        <div className="mt-1.5 pt-1.5 border-t border-black/5 dark:border-white/5 space-y-0.5">
+        <div className="mt-1.5 pt-1 border-t border-black/6 dark:border-white/8 space-y-0.5 text-[11px]">
           <button
             onClick={() => {
               onSearchBook(selection.text);
               onClose();
             }}
-            className="w-full text-left px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-[11px] cursor-pointer"
+            className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 cursor-pointer"
           >
-            <BookOpen className="w-3 h-3 opacity-60" />
+            <BookOpen className="w-3 h-3 opacity-55" />
             <span>Search Book</span>
           </button>
 
           <button
             onClick={handleSearchWeb}
-            className="w-full text-left px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-[11px] cursor-pointer"
+            className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 cursor-pointer"
           >
-            <Globe className="w-3 h-3 opacity-60" />
+            <Globe className="w-3 h-3 opacity-55" />
             <span>Search Web</span>
           </button>
 
           <button
             onClick={handleSearchWikipedia}
-            className="w-full text-left px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-[11px] cursor-pointer"
+            className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 cursor-pointer"
           >
-            <Search className="w-3 h-3 opacity-60" />
-            <span>Search Wikipedia</span>
+            <Search className="w-3 h-3 opacity-55" />
+            <span>Wikipedia</span>
           </button>
 
           <button
             onClick={handleShare}
-            className="w-full text-left px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-[11px] cursor-pointer"
+            className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 cursor-pointer"
           >
-            <Share2 className="w-3 h-3 opacity-60" />
+            <Share2 className="w-3 h-3 opacity-55" />
             <span>Share Quote</span>
           </button>
+
+          {isGeminiAvailable && (
+            <button
+              onClick={handleAskAI}
+              disabled={aiLoading}
+              className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-blue-600 dark:text-blue-400 cursor-pointer disabled:opacity-50"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Ask AI</span>
+            </button>
+          )}
+
+          {isGeminiAvailable && isLikelyCharacter && (
+            <button
+              onClick={handleLookupCharacter}
+              disabled={aiLoading}
+              className="w-full text-left px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 flex items-center space-x-2 text-purple-600 dark:text-purple-400 cursor-pointer disabled:opacity-50"
+            >
+              <UserCheck className="w-3 h-3" />
+              <span>Who is this?</span>
+            </button>
+          )}
         </div>
       )}
     </div>

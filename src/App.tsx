@@ -314,8 +314,6 @@ export default function App() {
 
       if (payload.existingHighlightId) {
         setActiveHighlightId(payload.existingHighlightId);
-        setActiveSidebarTab('notes');
-        setSidebarOpen(true);
         setSelectionPopup(payload);
         return;
       }
@@ -339,8 +337,6 @@ export default function App() {
       });
 
       setActiveHighlightId(newId);
-      setActiveSidebarTab('notes');
-      setSidebarOpen(true);
       setSelectionPopup({
         ...payload,
         existingHighlightId: newId,
